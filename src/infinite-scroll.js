@@ -15,6 +15,7 @@ angular.module(MODULE_NAME, [])
       infiniteScrollDisabled: '=',
       infiniteScrollUseDocumentBottom: '=',
       infiniteScrollListenForEvent: '@',
+      infiniteScrollUp: '&',
     },
 
     link(scope, elem, attrs) {
@@ -98,6 +99,47 @@ angular.module(MODULE_NAME, [])
         }
       }
 
+
+      // taken from https://github.com/sroze/ngInfiniteScroll/issues/20
+      // code by @Shadowstep33
+      if('infiniteScrollUp' in attrs)
+      handlerUp = function() {
+        var containerBottom, containerTopOffset, elementBottom, remaining, shouldScroll;
+        if (container === windowElement) {
+          containerBottom = height(container) + pageYOffset(container[0].document.documentElement);
+          elementBottom = offsetTop(elem) + height(elem);
+        } else {
+            containerBottom = 0;
+            containerTopOffset = 0;
+
+            containerTopOffset = container[0].scrollTop;
+            elementBottom = container[0].scrollHeight;
+        }
+        if (useDocumentBottom) {
+          elementBottom = height((elem[0].ownerDocument || elem[0].document).documentElement);
+        }
+        remaining = containerTopOffset;
+        shouldScroll = remaining <= height(container) * scrollDistance + 1;
+
+        if (shouldScroll) {
+          checkWhenEnabled = true;
+          if (scrollEnabled) {
+            if (scope.$$phase || $rootScope.$$phase) {
+              return scope.infiniteScrollUp();
+            } else {
+              return scope.$apply(scope.infiniteScrollUp);
+            }
+          }
+        } else {
+          if (checkInterval) {
+            $interval.cancel(checkInterval);
+          }
+          return checkWhenEnabled = false;
+        }
+      };
+      else
+      handlerUp = null;
+
       // The optional THROTTLE_MILLISECONDS configuration value specifies
       // a minimum time that should elapse between each call to the
       // handler. N.b. the first call the handler will be run
@@ -131,12 +173,23 @@ angular.module(MODULE_NAME, [])
         return throttled;
       }
 
+      //If scroll direction up function is passed
+      if (THROTTLE_MILLISECONDS != null && handlerUp) {
+        handlerUp = throttle(handlerUp, THROTTLE_MILLISECONDS);
+      }
+
       const handler = (THROTTLE_MILLISECONDS != null) ?
         throttle(defaultHandler, THROTTLE_MILLISECONDS) :
         defaultHandler;
 
       function handleDestroy() {
-        container.unbind('scroll', handler);
+        if (handlerUp) {
+          container.unbind('scroll', handlerUp);
+        }
+        else {
+          container.unbind('scroll', handler);
+        }
+
         if (unregisterEventListener != null) {
           unregisterEventListener();
           unregisterEventListener = null;
@@ -171,7 +224,11 @@ angular.module(MODULE_NAME, [])
         scrollEnabled = !v;
         if (scrollEnabled && checkWhenEnabled) {
           checkWhenEnabled = false;
-          handler();
+
+          if(handlerUp)
+            return handlerUp();
+          else
+            return handler();
         }
       }
 
@@ -195,19 +252,30 @@ angular.module(MODULE_NAME, [])
       // a jQuery selector as a string.
       function changeContainer(newContainer) {
         if (container != null) {
-          container.unbind('scroll', handler);
+
+          if(handlerUp)
+            container.unbind('scroll', handlerUp);
+          else
+            container.unbind('scroll', handler);
         }
 
         container = newContainer;
         if (newContainer != null) {
-          container.bind('scroll', handler);
+
+          if(handlerUp)
+            return container.bind('scroll', handlerUp);
+          else
+            return container.bind('scroll', handler);
         }
       }
 
       changeContainer(windowElement);
 
       if (scope.infiniteScrollListenForEvent) {
-        unregisterEventListener = $rootScope.$on(scope.infiniteScrollListenForEvent, handler);
+        if(handlerUp)
+          unregisterEventListener = $rootScope.$on(scope.infiniteScrollListenForEvent, handlerUp);
+        else
+          unregisterEventListener = $rootScope.$on(scope.infiniteScrollListenForEvent, handler);unregisterEventListener = $rootScope.$on(scope.infiniteScrollListenForEvent, handler);
       }
 
       function handleInfiniteScrollContainer(newContainer) {
@@ -256,7 +324,11 @@ angular.module(MODULE_NAME, [])
 
       function intervalCheck() {
         if (immediateCheck) {
-          handler();
+
+          if(handlerUp)
+            handlerUp();
+          else
+            handler();
         }
         return $interval.cancel(checkInterval);
       }
